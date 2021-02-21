@@ -12,7 +12,7 @@ dir = None # Working directory
 su_ext = '.su'
 obj_ext = '.o'
 manual_ext = '.msu'
-read_elf_path = "arm-none-eabi-readelf.exe" # You may need to enter the full path here
+read_elf_path = "readelf" # You may need to enter the full path here, does not to be arch specific
 stdout_encoding = "utf-8"  # System dependant
 
 
@@ -33,7 +33,11 @@ def read_symbols(file):
 
         s2 = Symbol()
         s2.value = int(v[1], 16)
-        s2.size = int(v[2])
+        # Handle base16 values
+        if "0x" in v[2]:
+            s2.size = int(v[2], 16)
+        else:
+            s2.size = int(v[2])
         s2.type = v[3]
         s2.binding = v[4]
         if len(v) >= 8:
@@ -89,12 +93,13 @@ def find_fxn(tu, fxn, call_graph):
     :param call_graph: a object used to store information about each function
     :return: the dictionary for the given function or None
     """
-
-    if fxn in call_graph['globals']:
-        return call_graph['globals'][fxn]
+    # Adds an underscore because of how c symbols are translated
+    fxn_sym ="_"+fxn
+    if fxn_sym in call_graph['globals']:
+        return call_graph['globals'][fxn_sym]
     else:
         try:
-            return call_graph['locals'][fxn][tu]
+            return call_graph['locals'][fxn_sym][tu]
         except KeyError:
             return None
 
@@ -153,7 +158,9 @@ def read_rtl(tu, call_graph):
 
         m = other_call.match(line_)
         if m:
-            fxn_dict2['has_ptr_call'] = True
+            # Treat as zero to actually be a useful tool
+            #fxn_dict2['has_ptr_call'] = True
+            fxn_dict2['local_stack'] = 0
             continue
 
 
@@ -340,18 +347,19 @@ def print_all_fxns(call_graph):
     print("")
     print(row_format.format('Translation Unit', 'Function Name', 'Stack', 'Unresolved Dependencies'))
     for d in d_list:
-        print_fxn(row_format, d)
+        if isinstance(d['wcs'], int) and d['wcs'] > 0:
+            print_fxn(row_format, d)
 
 
 def find_rtl_ext():
     # Find the rtl_extension
     global rtl_ext
-    
+
     for root, directories, filenames in os.walk('.'):
         for f in filenames:
             if (f.endswith(rtl_ext_end)):
                 rtl_ext = f[f[:-len(rtl_ext_end)].rindex("."):]
-                print("rtl_ext = " + rtl_ext)
+                #print("rtl_ext = " + rtl_ext)
                 return
 
     print("Could not find any files ending with '.dfinish'.  Check that the script is being run from the correct "
@@ -373,7 +381,7 @@ def find_files():
         short_base = base[0:base.rindex(".")]
         if short_base + su_ext in all_files and short_base + obj_ext in all_files:
             tu.append(base)
-            print('Reading: {}{}, {}{}, {}{}'.format(base, rtl_ext, short_base, su_ext, short_base, obj_ext))
+            #print('Reading: {}{}, {}{}, {}{}'.format(base, rtl_ext, short_base, su_ext, short_base, obj_ext))
 
     files = [f for f in all_files if os.path.isfile(f) and f.endswith(manual_ext)]
     for f in files:
@@ -400,7 +408,7 @@ def main():
     # Read the input files
     for tu in tu_list:
         read_obj(tu, call_graph)  # This must be first
-        
+
     for fxn in call_graph['weak'].values():
         if fxn['name'] not in call_graph['globals'].keys():
             call_graph['globals'][fxn['name']] = fxn
